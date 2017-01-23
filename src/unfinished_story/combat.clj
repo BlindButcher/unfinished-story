@@ -4,31 +4,31 @@
 
 (declare map-win-lose bind hit-event own-group
          hit dam-fun-supplier find-first
-         find-by-id target-group try-find-by find-by)
+         find-by-id target-group try-find-by find-by with-priority indices)
 
 
 ;; Auto battles with only attack actions.
 (defn auto-combat [state]
     (let [actor-id (first (first (state :priority-map))) priority-queue (state :priority-map)]
-      (if (and (some? creature/alive? (state :attackers))
-               (some? creature/alive? (state :defenders)))
+      (if (and (some creature/alive? (state :attackers))
+               (some creature/alive? (state :defenders)))
 
-          (let [actor (find-by-id actor-id) enemy-group (target-group state actor)]
+          (let [actor (lookup-actor state actor-id)
+                enemy-group (target-group state actor)
+                target (first (state enemy-group))]
 
-            (with-priority (dissoc priority-queue actor-id))
+            (with-priority state (dissoc priority-queue actor-id))
 
-              (update-in state [(own-group actor) (indices (fn [x] (= (x :id) actor-id))) (state own-group)]
-                       hit (first enemy-group)))
+              (assoc-in state [enemy-group (indices (fn [x] (= (x :id) (target :id)))
+                                        (state (own-group target state)))]
+                        (first (hit actor target))))
 
       )))
 
 ;; Retrieve information about creature: creature, group and index
 (defn lookup-actor [state actor-id]
-
+    (find-by-id (concat (state :attackers) (state :defenders)) actor-id)
   )
-
-
-
 
 ;;Updates state with new prioriy-map
 (defn with-priority [state new-priorities]
@@ -39,21 +39,19 @@
   (assoc state :priority-map creature))
 
 ;; Return group opposite to grop in each current creature is.
-(defn target-group [creature state]
+(defn target-group [state creature]
   (if (try-find-by (state :attackers) :id (creature :id))
-    (state :defenders)
-           (state :attackers)))
+    :defenders :attackers))
 
-;; Return group opposite to grop in each current creature is.
-(defn own-group [creature state]
+;; Return group opposite to actors in each current creature is.
+(defn own-group [state creature]
   (if (try-find-by (state :attackers) :id (creature :id))
-    (state :attackers)
-           (state :defenders)))
+    :attackers :defenders))
 
 
 ;; Find element index in vector
 (defn indices [pred coll]
-   (keep-indexed #(when (pred %2) %1) coll))
+   (first (keep-indexed #(when (pred %2) %1) coll)))
 
 ;; Finds random target between creatures still alive in enemy group.
 (defn find-target [coll] (find-first creature/alive? coll))
@@ -106,7 +104,7 @@
 ;;Return both creatures and a even battle log.
 (defn two-creature-battle [attacker defender queue]
   (if (every? creature/alive? [attacker defender])
-    (let [hit-result (hit attacker defender (dam-fun-supplier))]
+    (let [hit-result (hit attacker defender)]
       (two-creature-battle (first hit-result) attacker (conj queue (last hit-result))))
     (map-win-lose attacker defender queue)))
 
@@ -114,7 +112,7 @@
 (defn hit
   ([attacker defender] (hit attacker defender (dam-fun-supplier)))
   ([attacker, defender, damage-fun]
-  (let [damage (damage-fun (get attacker :damage))]
+  (let [damage (damage-fun (attacker :damage))]
     [(assoc defender :cur-hp
       (- (get defender :cur-hp) damage)) (hit-event attacker defender damage)])))
 
